@@ -1,0 +1,5 @@
+/.idea
+/target
+/rootfs
+
+os-bootstrap
