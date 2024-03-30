@@ -1,0 +1,24 @@
+name: StrawberryOS Base
+id: strawberryos-base
+
+pre-init:
+  commands:
+    - rm -rf rootfs* os-bootstrap
+    - wget https://github.com/Strawberry-Foundations/sbos-scripts/raw/main/os-bootstrap
+    - chmod a+x os-bootstrap
+    - mkdir rootfs
+    - apt install -y debootstrap bubblewrap
+    - ./os-bootstrap install -t rootfs
+    - cd rootfs
+    - tar -cf ../rootfs.tar -R .
+
+init:
+  base: scratch
+  files:
+    - source: rootfs.tar
+      destination: /
+
+post-init:
+  commands:
+    - wget https://raw.githubusercontent.com/Strawberry-Foundations/sbos-scripts/main/neofetch -O /usr/bin/neofetch
+    - chmod a+x /usr/bin/neofetch

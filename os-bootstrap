@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+
+import subprocess
+import sys
+import os
+import time
+
+BOLD = '\033[1m'
+ITALIC = "\033[3m"
+
+UNDERLINE = '\033[4m'
+STRIKETHROUGH = '\033[9m'
+
+C_RESET = '\033[0m'
+
+# Basic Colors
+BLACK = "\033[30m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN = "\033[36m"
+WHITE = "\033[37m"
+RESET = "\033[39m"
+GRAY = "\033[90m"
+
+# Light Colors
+LIGHT_RED = "\033[91m"
+LIGHT_GREEN = "\033[92m"
+LIGHT_YELLOW = "\033[93m"
+LIGHT_BLUE = "\033[94m"
+LIGHT_MAGENTA = "\033[95m"
+LIGHT_CYAN = "\033[96m"
+LIGHT_WHITE = "\033[97m"
+
+# Background Colors
+BACK_BLACK = "\033[40m"
+BACK_RED = "\033[41m"
+BACK_GREEN = "\033[42m"
+BACK_YELLOW = "\033[43m"
+BACK_BLUE = "\033[44m"
+BACK_MAGENTA = "\033[45m"
+BACK_CYAN = "\033[46m"
+BACK_WHITE = "\033[47m"
+BACK_RESET = "\033[49m"
+
+# Light Background Colors
+BACK_LIGHT_RED = "\033[101m"
+BACK_LIGHT_GREEN = "\033[102m"
+BACK_LIGHT_YELLOW = "\033[103m"
+BACK_LIGHT_BLUE = "\033[104m"
+BACK_LIGHT_MAGENTA = "\033[105m"
+BACK_LIGHT_CYAN = "\033[106m"
+BACK_LIGHT_WHITE = "\033[107m"
+
+# Styles
+STYLE_BRIGHT = "\033[1m"
+STYLE_DIM = "\033[2m"
+STYLE_NORMAL = "\033[22m"
+
+# Aliases
+LIGHT_BLACK = "\033[90m"  # Alias of GRAY
+PURPLE = "\033[35m"  # Alias of MAGENTA
+STYLE_RESET = "\033[0m"  # Alias of C_RESET
+
+VERSION = "1.1.8"
+
+
+def check_root_permissions():
+    return os.geteuid() == 0
+
+
+class Args:
+    def __init__(self):
+        self.args = sys.argv[1:]
+        self.dt_ignore_root = False
+        self.dt_ignore_bootstrap = False
+        self.dt_install_dir = os.getcwd()
+        self.dt_data_dir = ""
+
+        self.parse_arguments()
+
+    def parse_arguments(self):
+        iter_args = iter(self.args)
+
+        for arg in iter_args:
+            if arg in ("-t", "--target"):
+                try:
+                    port = next(iter_args)
+                    self.dt_install_dir = str(port)
+                except StopIteration:
+                    return None
+                except ValueError:
+                    return None
+
+        return 0
+
+
+def help_message():
+    print(f"""{BOLD}{CYAN}{UNDERLINE}[StrawberryOS] os-bootstrap v{VERSION}{C_RESET}\n\
+{GREEN}{BOLD}Usage:{RESET} {WHITE}os-bootstrap {CYAN}[command] {RED}[<options>]{C_RESET}\n\n\
+{MAGENTA}{BOLD}Commands:{C_RESET}
+    {CYAN}{BOLD}help:{C_RESET} Prints this message
+    {CYAN}{BOLD}about:{C_RESET} About os-bootstrap
+    {CYAN}{BOLD}auth:{C_RESET} Authenticate with your Strawberry ID
+    {CYAN}{BOLD}chroot <dir>:{C_RESET} chroot into a directory
+
+    {CYAN}{BOLD}install <packages>:{C_RESET} Installs StrawberryOS and the specified package features
+     {BOLD}↳ {MAGENTA}Options:{C_RESET}
+            {CYAN}{BOLD}-t, --target <dir>{C_RESET}  Folder where StrawberryOS will be installed  {GREEN}{BOLD}[default: $PWD]{C_RESET}
+
+    {CYAN}{BOLD}configure:{C_RESET} Configure StrawberryOS
+     {BOLD}↳ {MAGENTA}Options:{C_RESET}
+            {CYAN}{BOLD}-???, --???{C_RESET}             ???        
+
+    {CYAN}{BOLD}initramfs <subcmd>:{C_RESET} Install & configure the Initramfs
+     {BOLD}↳ {MAGENTA}Subcommands:{C_RESET}
+            {CYAN}{BOLD}install{C_RESET}  Installs the required initramfs tools{C_RESET}
+             {BOLD}↳ {MAGENTA}Options:{C_RESET}
+                {CYAN}{BOLD}-t, --target <dir>{C_RESET}   Root directory for installing initramfs-tools  {GREEN}{BOLD}[default: $PWD]{C_RESET}
+                {CYAN}{BOLD}-d, --data <device>{C_RESET}  Block device for configuring your data directory
+    
+""")
+
+
+def install(_args: Args):
+    package_list = {
+        "init":
+            "dbus,dbus-bin,dbus-daemon,dbus-session-bus-common,dbus-system-bus-common,dbus-user-session,libpam-systemd,\
+apt-utils,apt-transport-https,ca-certificates,bash,bzip2,initramfs-tools-core,initramfs-tools,linux-image-amd64,\
+busybox-static,network-manager",
+
+        "base": "zstd grub-efi kbd locales locales-all bash-completion sudo",
+        "base-dev": "git gcc make g++ build-essential linux-headers-amd64",
+        "utils": "wget curl neofetch htop btop",
+        "python3": "python3 python3-dev python3-pip python-is-python3"
+    }
+
+    if not check_root_permissions() and not _args.dt_ignore_root:
+        print(f"{RED }[!] {BOLD}Requires root permissions{C_RESET}")
+        exit(1)
+
+    packages = ["base"]
+
+    iter_args = iter(_args.args)
+
+    i = 0
+    while i < len(_args.args):
+        if _args.args[i] in ("-t", "--target"):
+            try:
+                install_dir = str(_args.args.pop(i + 1))
+                _args.dt_install_dir = install_dir
+                _args.args.pop(i)
+            except IndexError:
+                print(f"{RED}[!] {BOLD}Please specify a path{C_RESET}")
+                exit(1)
+            except ValueError:
+                print("Invalid value")
+                exit(1)
+        else:
+            i += 1
+
+    for package in _args.args[1:]:
+        if package not in package_list:
+            print(f"{RED}[!] {BOLD}Package '{package}' is not available{C_RESET}")
+            exit(1)
+
+    packages.extend(_args.args[1:])
+
+    path = os.path.abspath(_args.dt_install_dir)
+    if not os.path.exists(path):
+        print(f"{RED}[!] {BOLD}Path '{path}' not found{C_RESET}")
+        exit(1)
+
+    print(f"{BOLD}{GREEN}=>{RESET} Bootstrapping to {CYAN}{path}{RESET} with following packages: {GRAY}{', '.join(packages)}{RESET} ... {C_RESET}")
+    time.sleep(1)
+
+    if not _args.dt_ignore_bootstrap:
+        subprocess.run(
+            f"""/usr/sbin/debootstrap \
+            --include={package_list["init"]} trixie \
+            {path} https://deb.debian.org/debian""", shell=True
+        )
+
+        os.rmdir(path + "/home")
+        # os.rmdir(path + "/root")
+
+    cmd = f"bwrap --bind {path} / --dev /dev --bind /sys /sys --bind /proc /proc --bind /tmp /tmp"
+
+    print(f"{BOLD}{GREEN}=>{RESET} Configuring packages ... {C_RESET}")
+
+    i = 1
+    for package in packages:
+        print(f"{BOLD}{GREEN}=>{RESET} Configuring package {i} of {len(packages)} ({package}) ... {C_RESET}")
+        subprocess.run(cmd + " apt install -y " + package_list.get(package), shell=True)
+        i += 1
+        print("")
+
+    print(f"{BOLD}{GREEN}=>{RESET} Finished package configuration {C_RESET}")
+
+    print(f"{BOLD}{GREEN}=>{RESET} Cleaning up system {C_RESET}")
+    subprocess.run(cmd + " apt update", shell=True)
+    subprocess.run(cmd + " apt upgrade -y", shell=True)
+    subprocess.run(cmd + " apt clean all", shell=True)
+    subprocess.run(cmd + " apt autoclean", shell=True)
+    subprocess.run(cmd + " apt autoremove -y", shell=True)
+
+    print(f"{BOLD}{GREEN}=>{RESET} Finished bootstrap of base system {C_RESET}")
+
+
+def initramfs(_args: Args):
+    if len(_args.args) <= 1:
+        help_message()
+        exit(0)
+
+    if not check_root_permissions() and not _args.dt_ignore_root:
+        print(f"{RED }[!] {BOLD}Requires root permissions{C_RESET}")
+        exit(1)
+
+    match _args.args[1]:
+        case "install":
+            iter_args = iter(_args.args)
+
+            i = 0
+            while i < len(_args.args):
+                if _args.args[i] in ("-d", "--data"):
+                    try:
+                        install_dir = str(_args.args.pop(i + 1))
+                        _args.dt_data_dir = install_dir
+                        _args.args.pop(i)
+                    except IndexError:
+                        print(f"{RED}[!] {BOLD}Please specify a valid block device (e.g. -d /dev/sda2){C_RESET}")
+                        exit(1)
+                    except ValueError:
+                        print("Invalid value")
+                        exit(1)
+
+                elif _args.args[i] in ("-t", "--target"):
+                    try:
+                        install_dir = str(_args.args.pop(i + 1))
+                        _args.dt_install_dir = install_dir
+                        _args.args.pop(i)
+                    except IndexError:
+                        print(f"{RED}[!] {BOLD}Please specify a path{C_RESET}")
+                        exit(1)
+                    except ValueError:
+                        print("Invalid value")
+                        exit(1)
+                else:
+                    i += 1
+
+            if _args.dt_data_dir == "":
+                print(f"{RED}[!] {BOLD}Please specify a valid block device (e.g. -d /dev/sda2){C_RESET}")
+                exit(1)
+
+            path = os.path.abspath(_args.dt_install_dir)
+            if not os.path.exists(path):
+                print(f"{RED}[!] {BOLD}Path '{path}' not found{C_RESET}")
+                exit(1)
+
+            cmd = f"bwrap --bind {path} / --dev /dev --bind /sys /sys --bind /proc /proc --bind /tmp /tmp"
+
+            print(f"{BOLD}{GREEN}=>{RESET} Downloading initramfs tools ...{C_RESET}")
+
+            subprocess.run("wget https://github.com/Strawberry-Foundations/sbos-scripts/archive/refs/heads/main.tar.gz", shell=True)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Extracting initramfs tools ...{C_RESET}")
+
+            subprocess.run("tar xfz main.tar.gz", shell=True)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Patching initramfs-tools ...{C_RESET}")
+
+            with open(f"{os.getcwd()}/sbos-scripts-main/overlay-init", "r") as _initramfs_script:
+                irfs_init = _initramfs_script.read()
+
+            patched_irfs_init = irfs_init.replace("/dev/data_partition", _args.dt_data_dir)
+
+            with open(f"{os.getcwd()}/sbos-scripts-main/overlay-init", "w") as _initramfs_script:
+                _initramfs_script.write(patched_irfs_init)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Installing initramfs-tools to {path} ...{C_RESET}")
+            subprocess.run(f"mv sbos-scripts-main/overlay-hook {path}/etc/initramfs-tools/hooks/overlay", shell=True)
+            subprocess.run(f"mv sbos-scripts-main/overlay-init {path}/etc/initramfs-tools/scripts/init-bottom/overlay", shell=True)
+
+            with open(f"{os.getcwd()}/sbos-scripts-main/regen-initramfs", "w") as _initramfs_script:
+                _initramfs_script.write("update-initramfs -u")
+
+            subprocess.run(f"mv sbos-scripts-main/regen-initramfs {path}/usr/local/bin/regen-initramfs", shell=True)
+
+            subprocess.run(f"chmod a+x {path}/usr/local/bin/regen-initramfs", shell=True)
+            subprocess.run(f"chmod a+x {path}/etc/initramfs-tools/hooks/overlay", shell=True)
+            subprocess.run(f"chmod a+x {path}/etc/initramfs-tools/scripts/init-bottom/overlay", shell=True)
+
+            subprocess.run(f"chmod 775 {path}/etc/initramfs-tools/hooks/overlay", shell=True)
+            subprocess.run(f"chmod 775 {path}/etc/initramfs-tools/scripts/init-bottom/overlay", shell=True)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Updating initramfs ...{C_RESET}")
+            subprocess.run(cmd + " regen-initramfs", shell=True)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Cleaning up ...{C_RESET}")
+            subprocess.run(f"rm -rf sbos-scripts-main", shell=True)
+            subprocess.run(f"rm -rf main.tar* ", shell=True)
+
+            print(f"{BOLD}{GREEN}=>{RESET} Finished initramfs configuration ...{C_RESET}")
+
+
+def chroot(_args: Args):
+    if not check_root_permissions() and not _args.dt_ignore_root:
+        print(f"{RED }[!] {BOLD}Requires root permissions{C_RESET}")
+        exit(1)
+
+    path = os.path.abspath(_args.args[1])
+
+    if not os.path.exists(path):
+        print(f"{RED}[!] {BOLD}Path '{path}' not found{C_RESET}")
+        exit(1)
+
+    print(f"{BOLD}{GREEN}=>{RESET} Binding host system directories ...{C_RESET}")
+    subprocess.run(f"mount --bind /dev {path}/dev", shell=True)
+    subprocess.run(f"mount --bind /sys {path}/sys", shell=True)
+    subprocess.run(f"mount --bind /proc {path}/proc", shell=True)
+    print(f"{BOLD}{GREEN}=>{RESET} Entering chroot ...{C_RESET}")
+    subprocess.run(f"chroot {path}", shell=True)
+    print(f"{BOLD}{GREEN}=>{RESET} Leaving chroot ...{C_RESET}")
+    subprocess.run(f"umount {path}/dev", shell=True)
+    subprocess.run(f"umount {path}/sys", shell=True)
+    subprocess.run(f"umount {path}/proc", shell=True)
+
+
+args = Args()
+
+if len(args.args) < 1:
+    help_message()
+    exit(0)
+
+match args.args[0]:
+    case "install":
+        install(args)
+    case "initramfs":
+        initramfs(args)
+    case "chroot":
+        chroot(args)
+    case "help" | _:
+        help_message()
