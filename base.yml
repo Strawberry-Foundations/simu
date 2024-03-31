@@ -7,10 +7,12 @@ pre-init:
     - wget https://github.com/Strawberry-Foundations/sbos-scripts/raw/main/os-bootstrap
     - chmod a+x os-bootstrap
     - mkdir rootfs
-    - apt install -y debootstrap bubblewrap
-    - ./os-bootstrap install -t rootfs
+    - export DEBIAN_FRONTEND=noninteractive
+    - DEBIAN_FRONTEND=noninteractive
+    - apt install debootstrap bubblewrap
+    - DEBIAN_FRONTEND=noninteractive ./os-bootstrap install -t rootfs
     - cd rootfs
-    - tar -cf ../rootfs.tar -R .
+    - tar -cf ../rootfs.tar .
 
 init:
   base: scratch
