@@ -7,8 +7,13 @@ mod logger;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let receipt = DockerfileConfig::parse_yaml("base.yml")?;
-    receipt.pre_hooks().unwrap();
+    match receipt.pre_hooks() { 
+        Ok(..) => (), 
+        Err(err) => eprintln!("Error")
+    };
     let dockerfile_content = receipt.generate_dockerfile();
     println!("{}", dockerfile_content);
+    
+    std::fs::write("Dockerfile", dockerfile_content).unwrap();
     Ok(())
 }
