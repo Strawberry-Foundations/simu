@@ -3,3 +3,4 @@
 /rootfs*
 
 os-bootstrap
+Dockerfile
